@@ -21,6 +21,7 @@
 | northwind SQL | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/kostis-christodoulou/e628/blob/main/session05-lecture05/01_northwind_SQL.ipynb) |
 | duckdb arrow | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/kostis-christodoulou/e628/blob/main/session05-lecture05/02_duckdb_arrow.ipynb) |
 | nyc taxi duckdb maps | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/kostis-christodoulou/e628/blob/main/session05-lecture05/03_nyc_taxi_duckdb_maps.ipynb) |
+| HW3 | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/kostis-christodoulou/e628/blob/main/session05-lecture05/hw3-sql.ipynb) |
 
 ## Data
 
