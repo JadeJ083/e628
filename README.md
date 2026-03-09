@@ -26,8 +26,8 @@
 ### Session 7
 | Notebook | Link |
 |----------|------|
-| machine learning intro | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/kostis-christodoulou/e628/blob/main/session07-machine_learning/01_machine_learning.ipynb) |
-<!-- | HW4 | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/kostis-christodoulou/e628/blob/main/session07-machine_learning/hw4.ipynb) | -->
+| machine learning intro | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/kostis-christodoulou/e628/blob/main/session07-ML/01_machine_learning.ipynb) |
+<!-- | HW4 | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/kostis-christodoulou/e628/blob/main/session07-ML/hw4.ipynb) | -->
 
 ## Data
 
