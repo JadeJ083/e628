@@ -1104,33 +1104,12 @@ def update_explorer(nbhds, room_types_sel, price_range, acc_range, superhost_val
     elif superhost_val == "0":
         sub = sub[sub["is_superhost"] == 0]
 
-kpis = dbc.Row([
-    dbc.Col(kpi_card("Listings", f"{len(sub):,}"), md=3),
-    dbc.Col(
-        kpi_card(
-            "Median Price",
-            f"€{sub['price'].median():.0f}" if len(sub) else "—",
-            color=AIRBNB_TEAL
-        ),
-        md=3
-    ),
-    dbc.Col(
-        kpi_card(
-            "Avg Rating",
-            f"{sub['review_scores_rating'].mean():.2f}" if len(sub) else "—",
-            color="#FC642D"
-        ),
-        md=3
-    ),
-    dbc.Col(
-        kpi_card(
-            "Avg Capacity",
-            f"{sub['accommodates'].mean():.1f} guests" if len(sub) else "—",
-            color="#FFB400"
-        ),
-        md=3
-    ),
-])
+    kpis = dbc.Row([
+        dbc.Col(kpi_card("Listings", f"{len(sub):,}"), md=3),
+        dbc.Col(kpi_card("Median Price", f"€{sub['price'].median():.0f}" if len(sub) else "—", color=AIRBNB_TEAL), md=3),
+        dbc.Col(kpi_card("Avg Rating", f"{sub['review_scores_rating'].mean():.2f}" if len(sub) else "—", color="#FC642D"), md=3),
+        dbc.Col(kpi_card("Avg Capacity", f"{sub['accommodates'].mean():.1f} guests" if len(sub) else "—", color="#FFB400"), md=3),
+    ])
 
     if len(sub) == 0:
         empty = go.Figure()
