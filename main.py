@@ -963,15 +963,24 @@ def build_tab2():
 # TAB 3 — MACHINE LEARNING
 # =============================================================================
 def make_cv_rmse_figure():
-    if cv_results_df.empty:
+    required_cols = {"Model", "CV RMSE Mean"}
+    if cv_results_df.empty or not required_cols.issubset(cv_results_df.columns):
         return go.Figure()
 
-    plot_df = cv_results_df.sort_values("CV RMSE Mean", ascending=True).copy()
+    plot_df = cv_results_df.copy()
+    plot_df["CV RMSE Mean"] = pd.to_numeric(plot_df["CV RMSE Mean"], errors="coerce")
+    if "CV RMSE Std" in plot_df.columns:
+        plot_df["CV RMSE Std"] = pd.to_numeric(plot_df["CV RMSE Std"], errors="coerce")
+
+    plot_df = plot_df.dropna(subset=["Model", "CV RMSE Mean"]).sort_values("CV RMSE Mean", ascending=True)
+    if plot_df.empty:
+        return go.Figure()
+
     fig = px.bar(
         plot_df,
         x="CV RMSE Mean",
         y="Model",
-        error_x="CV RMSE Std",
+        error_x="CV RMSE Std" if "CV RMSE Std" in plot_df.columns else None,
         orientation="h",
         title="Cross-Validated RMSE by Model",
         labels={"CV RMSE Mean": "CV RMSE", "Model": "Model"}
@@ -979,16 +988,26 @@ def make_cv_rmse_figure():
     fig.update_layout(yaxis=dict(categoryorder="total ascending"))
     return apply_theme(fig)
 
+
 def make_cv_r2_figure():
-    if cv_results_df.empty:
+    required_cols = {"Model", "CV R2 Mean"}
+    if cv_results_df.empty or not required_cols.issubset(cv_results_df.columns):
         return go.Figure()
 
-    plot_df = cv_results_df.sort_values("CV R2 Mean", ascending=True).copy()
+    plot_df = cv_results_df.copy()
+    plot_df["CV R2 Mean"] = pd.to_numeric(plot_df["CV R2 Mean"], errors="coerce")
+    if "CV R2 Std" in plot_df.columns:
+        plot_df["CV R2 Std"] = pd.to_numeric(plot_df["CV R2 Std"], errors="coerce")
+
+    plot_df = plot_df.dropna(subset=["Model", "CV R2 Mean"]).sort_values("CV R2 Mean", ascending=True)
+    if plot_df.empty:
+        return go.Figure()
+
     fig = px.bar(
         plot_df,
         x="CV R2 Mean",
         y="Model",
-        error_x="CV R2 Std",
+        error_x="CV R2 Std" if "CV R2 Std" in plot_df.columns else None,
         orientation="h",
         title="Cross-Validated R² by Model",
         labels={"CV R2 Mean": "CV R²", "Model": "Model"}
@@ -996,11 +1015,18 @@ def make_cv_r2_figure():
     fig.update_layout(yaxis=dict(categoryorder="total ascending"))
     return apply_theme(fig)
 
+
 def make_tuned_rmse_figure():
-    if tuning_df.empty:
+    required_cols = {"Model", "Best CV RMSE"}
+    if tuning_df.empty or not required_cols.issubset(tuning_df.columns):
         return go.Figure()
 
-    plot_df = tuning_df.sort_values("Best CV RMSE", ascending=True).copy()
+    plot_df = tuning_df.copy()
+    plot_df["Best CV RMSE"] = pd.to_numeric(plot_df["Best CV RMSE"], errors="coerce")
+    plot_df = plot_df.dropna(subset=["Model", "Best CV RMSE"]).sort_values("Best CV RMSE", ascending=True)
+    if plot_df.empty:
+        return go.Figure()
+
     fig = px.bar(
         plot_df,
         x="Best CV RMSE",
@@ -1012,11 +1038,19 @@ def make_tuned_rmse_figure():
     fig.update_layout(yaxis=dict(categoryorder="total ascending"))
     return apply_theme(fig)
 
+
 def make_pre_post_tuning_figure():
-    if tuning_comparison_df.empty:
+    required_cols = {"Model", "Pre-tune CV RMSE", "Post-tune CV RMSE"}
+    if tuning_comparison_df.empty or not required_cols.issubset(tuning_comparison_df.columns):
         return go.Figure()
 
-    plot_df = tuning_comparison_df.sort_values("Post-tune CV RMSE", ascending=True).copy()
+    plot_df = tuning_comparison_df.copy()
+    plot_df["Pre-tune CV RMSE"] = pd.to_numeric(plot_df["Pre-tune CV RMSE"], errors="coerce")
+    plot_df["Post-tune CV RMSE"] = pd.to_numeric(plot_df["Post-tune CV RMSE"], errors="coerce")
+    plot_df = plot_df.dropna(subset=["Model", "Pre-tune CV RMSE", "Post-tune CV RMSE"])
+    if plot_df.empty:
+        return go.Figure()
+
     fig = go.Figure()
     fig.add_trace(go.Bar(
         x=plot_df["Model"],
@@ -1036,11 +1070,18 @@ def make_pre_post_tuning_figure():
     )
     return apply_theme(fig)
 
+
 def make_tuning_improvement_figure():
-    if tuning_comparison_df.empty:
+    required_cols = {"Model", "Improvement"}
+    if tuning_comparison_df.empty or not required_cols.issubset(tuning_comparison_df.columns):
         return go.Figure()
 
-    plot_df = tuning_comparison_df.sort_values("Improvement", ascending=False).copy()
+    plot_df = tuning_comparison_df.copy()
+    plot_df["Improvement"] = pd.to_numeric(plot_df["Improvement"], errors="coerce")
+    plot_df = plot_df.dropna(subset=["Model", "Improvement"]).sort_values("Improvement", ascending=False)
+    if plot_df.empty:
+        return go.Figure()
+
     fig = px.bar(
         plot_df,
         x="Improvement",
@@ -1053,11 +1094,18 @@ def make_tuning_improvement_figure():
     fig.update_layout(yaxis=dict(categoryorder="total ascending"))
     return apply_theme(fig)
 
+
 def make_feature_importance_figure():
-    if top_20_features.empty:
+    required_cols = {"Feature", "Importance"}
+    if top_20_features.empty or not required_cols.issubset(top_20_features.columns):
         return go.Figure()
 
-    plot_df = top_20_features.copy().sort_values("Importance", ascending=True)
+    plot_df = top_20_features.copy()
+    plot_df["Importance"] = pd.to_numeric(plot_df["Importance"], errors="coerce")
+    plot_df = plot_df.dropna(subset=["Feature", "Importance"]).sort_values("Importance", ascending=True)
+    if plot_df.empty:
+        return go.Figure()
+
     fig = px.bar(
         plot_df,
         x="Importance",
@@ -1069,12 +1117,16 @@ def make_feature_importance_figure():
     fig.update_layout(height=650)
     return apply_theme(fig)
 
+
 def make_test_metric_figure(metric):
     if comparison_df.empty or metric not in comparison_df.index:
         return go.Figure()
 
     metric_values = pd.to_numeric(comparison_df.loc[metric], errors="coerce").reset_index()
     metric_values.columns = ["Model", "Value"]
+    metric_values = metric_values.dropna(subset=["Model", "Value"])
+    if metric_values.empty:
+        return go.Figure()
 
     ascending = metric not in ["R² (log)", "R² (€)"]
     metric_values = metric_values.sort_values("Value", ascending=ascending)
@@ -1089,155 +1141,7 @@ def make_test_metric_figure(metric):
     )
     fig.update_layout(yaxis=dict(categoryorder="total ascending"))
     return apply_theme(fig)
-
-def build_tab3():
-    if not ML_ENABLED:
-        return dbc.Container([
-            section_header("Machine Learning Modelling", "ML page could not be loaded"),
-            dbc.Alert(
-                f"Machine learning section failed to build. Error: {ML_ERROR_MESSAGE}",
-                color="danger",
-                className="mb-4"
-            ),
-            dbc.Card(
-                dbc.CardBody([
-                    html.H5("Why this happened"),
-                    html.P(
-                        "Most commonly this is caused by missing ML packages "
-                        "(for example xgboost / lightgbm) or a preprocessing issue."
-                    )
-                ]),
-                className="story-card"
-            )
-        ], fluid=True, className="tab-content")
-
-    winner_metrics = all_results[winning_model_name]["metrics"]
-
-    return dbc.Container([
-        section_header(
-            "Machine Learning Modelling",
-            "Model benchmarking, hyperparameter tuning, hold-out evaluation, and feature importance"
-        ),
-
-        dbc.Alert(ML_WARNING_MESSAGE, color="warning", className="mb-4") if ML_WARNING_MESSAGE else html.Div(),
-
-        dbc.Row([
-            dbc.Col(
-                dbc.Card(
-                    dbc.CardBody([
-                        html.H5("Winning Model"),
-                        html.H3(f"{winning_model_name}", style={"color": AIRBNB_RED}),
-                        html.Hr(),
-                        html.P(f"Test RMSE (€): {winner_metrics['RMSE (€)']:.2f}"),
-                        html.P(f"Test MAE (€): {winner_metrics['MAE (€)']:.2f}"),
-                        html.P(f"Test R² (€): {winner_metrics['R² (€)']:.4f}")
-                    ]),
-                    className="story-card"
-                ),
-                md=4
-            ),
-            dbc.Col(
-                dbc.Card(
-                    dbc.CardBody([
-                        html.H5("Pipeline Overview"),
-                        html.Ul([
-                            html.Li("Target variable: log_price"),
-                            html.Li("Numeric preprocessing: median imputation"),
-                            html.Li("Categorical preprocessing: most-frequent imputation + one-hot encoding"),
-                            html.Li("Linear models additionally use StandardScaler"),
-                            html.Li("Candidate models benchmarked with 5-fold cross-validation"),
-                            html.Li("Top 3 models tuned with GridSearchCV"),
-                            html.Li("Final winner selected by lowest hold-out RMSE in euro space")
-                        ])
-                    ]),
-                    className="story-card"
-                ),
-                md=8
-            ),
-        ], className="mb-4"),
-
-        dbc.Row([
-            dbc.Col(dcc.Graph(figure=make_cv_rmse_figure()), md=6),
-            dbc.Col(dcc.Graph(figure=make_cv_r2_figure()), md=6),
-        ], className="mb-4"),
-
-        dbc.Row([
-            dbc.Col([
-                section_header("Cross-validation Results Table"),
-                dash_table.DataTable(
-                    data=cv_table_df.to_dict("records"),
-                    columns=[{"name": c, "id": c} for c in cv_table_df.columns],
-                    page_size=10,
-                    sort_action="native",
-                    style_table={"overflowX": "auto"},
-                    style_header={"backgroundColor": AIRBNB_RED, "color": "white", "fontWeight": "bold"},
-                    style_cell={"fontFamily": "DM Sans, sans-serif", "padding": "8px"},
-                    style_data_conditional=[{"if": {"row_index": "odd"}, "backgroundColor": "#fafafa"}],
-                )
-            ], md=12)
-        ], className="mb-4"),
-
-        dbc.Row([
-            dbc.Col(dcc.Graph(figure=make_tuned_rmse_figure()), md=6),
-            dbc.Col(dcc.Graph(figure=make_tuning_improvement_figure()), md=6),
-        ], className="mb-4"),
-
-        dbc.Row([
-            dbc.Col(dcc.Graph(figure=make_pre_post_tuning_figure()), md=12),
-        ], className="mb-4"),
-
-        dbc.Row([
-            dbc.Col([
-                section_header("Hyperparameter Tuning Summary"),
-                dash_table.DataTable(
-                    data=tuning_table_df.to_dict("records"),
-                    columns=[{"name": c, "id": c} for c in tuning_table_df.columns],
-                    page_size=10,
-                    sort_action="native",
-                    style_table={"overflowX": "auto"},
-                    style_header={"backgroundColor": AIRBNB_RED, "color": "white", "fontWeight": "bold"},
-                    style_cell={"fontFamily": "DM Sans, sans-serif", "padding": "8px"},
-                    style_data_conditional=[{"if": {"row_index": "odd"}, "backgroundColor": "#fafafa"}],
-                )
-            ], md=12)
-        ], className="mb-4"),
-
-        dbc.Row([
-            dbc.Col([
-                section_header("Hold-out Test Performance"),
-                html.Label("Select metric:"),
-                dcc.Dropdown(
-                    id="ml-metric-dropdown",
-                    options=[
-                        {"label": m, "value": m}
-                        for m in comparison_df.index
-                        if m != "CV Time (s)"
-                    ],
-                    value="RMSE (€)" if "RMSE (€)" in comparison_df.index else comparison_df.index[0],
-                    clearable=False,
-                ),
-                dcc.Graph(id="ml-metric-chart")
-            ], md=7),
-
-            dbc.Col([
-                section_header("Best Model by Metric"),
-                dash_table.DataTable(
-                    data=best_model_per_metric_df.to_dict("records"),
-                    columns=[{"name": c, "id": c} for c in best_model_per_metric_df.columns],
-                    page_size=10,
-                    style_table={"overflowX": "auto"},
-                    style_header={"backgroundColor": AIRBNB_RED, "color": "white", "fontWeight": "bold"},
-                    style_cell={"fontFamily": "DM Sans, sans-serif", "padding": "8px"},
-                    style_data_conditional=[{"if": {"row_index": "odd"}, "backgroundColor": "#fafafa"}],
-                )
-            ], md=5),
-        ], className="mb-4"),
-
-        dbc.Row([
-            dbc.Col(dcc.Graph(figure=make_feature_importance_figure()), md=12),
-        ]),
-    ], fluid=True, className="tab-content")
-
+    
 # =============================================================================
 # TAB 4 — INTERACTIVE PRICE EXPLORER
 # =============================================================================
