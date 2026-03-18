@@ -11,6 +11,23 @@ import dash_bootstrap_components as dbc
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+from sklearn.compose import ColumnTransformer
+from sklearn.impute import SimpleImputer
+from sklearn.metrics import (
+    mean_absolute_error,
+    mean_absolute_percentage_error,
+    mean_squared_error,
+    median_absolute_error,
+    r2_score,
+)
+from sklearn.model_selection import GridSearchCV, KFold, cross_validate, train_test_split
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+
+from sklearn.linear_model import LinearRegression, Ridge, Lasso
+from sklearn.tree import DecisionTreeRegressor
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
+from sklearn.neighbors import KNeighborsRegressor
 
 # ── Brand palette ─────────────────────────────────────────────────────────────
 AIRBNB_PALETTE = ["#FF5A5F", "#00A699", "#FC642D", "#484848", "#767676", "#FFB400"]
@@ -258,9 +275,602 @@ superhost_comp = (
 ) if {"is_superhost", "price", "review_scores_rating"}.issubset(df.columns) else pd.DataFrame()
 
 # =============================================================================
-# ML PLACEHOLDER
+# SECTION 3.5 — MACHINE LEARNING PREP + RESULTS
 # =============================================================================
 ML_ENABLED = False
+ML_ERROR_MESSAGE = ""
+ML_WARNING_MESSAGE = ""
+
+cv_results_df = pd.DataFrame()
+cv_table_df = pd.DataFrame()
+tuning_df = pd.DataFrame()
+tuning_table_df = pd.DataFrame()
+tuning_comparison_df = pd.DataFrame()
+comparison_df = pd.DataFrame()
+test_metrics_table_df = pd.DataFrame()
+best_model_per_metric_df = pd.DataFrame()
+top_20_features = pd.DataFrame()
+all_results = {}
+winning_model_name = None
+
+try:
+    # Optional gradient boosting libraries
+    XGB_AVAILABLE = True
+    LGBM_AVAILABLE = True
+
+    try:
+        from xgboost import XGBRegressor
+    except Exception:
+        XGB_AVAILABLE = False
+        XGBRegressor = None
+
+    try:
+        from lightgbm import LGBMRegressor
+    except Exception:
+        LGBM_AVAILABLE = False
+        LGBMRegressor = None
+
+    # -------------------------------------------------------------------------
+    # STEP 1 — PREPARE DATASET FOR MACHINE LEARNING
+    # -------------------------------------------------------------------------
+    df_ml = df.copy()
+
+    if "log_price" not in df_ml.columns:
+        df_ml["log_price"] = np.log1p(df_ml["price"])
+
+    # Convert percentage strings such as "95%" to numeric
+    pct_cols = ["host_response_rate", "host_acceptance_rate"]
+    for col in pct_cols:
+        if col in df_ml.columns:
+            df_ml[col] = (
+                df_ml[col]
+                .astype(str)
+                .str.replace("%", "", regex=False)
+                .replace("nan", np.nan)
+            )
+            df_ml[col] = pd.to_numeric(df_ml[col], errors="coerce")
+
+    # Amenity count
+    if "amenities" in df_ml.columns:
+        df_ml["amenity_count"] = (
+            df_ml["amenities"]
+            .fillna("")
+            .apply(lambda x: len([a for a in str(x).strip("{}").split(",") if a.strip() != ""]))
+        )
+
+    # Bathrooms numeric
+    if "bathrooms" in df_ml.columns:
+        df_ml["bathrooms"] = pd.to_numeric(df_ml["bathrooms"], errors="coerce")
+
+    if ("bathrooms" not in df_ml.columns) or (df_ml["bathrooms"].isna().all()):
+        if "bathrooms_text" in df_ml.columns:
+            df_ml["bathrooms"] = (
+                df_ml["bathrooms_text"]
+                .astype(str)
+                .str.extract(r"(\d+\.?\d*)")[0]
+                .astype(float)
+            )
+
+    # Host flags to numeric
+    binary_map = {"t": 1, "f": 0, True: 1, False: 0}
+    for col in ["host_is_superhost", "host_identity_verified", "host_has_profile_pic"]:
+        if col in df_ml.columns:
+            df_ml[col] = df_ml[col].map(binary_map).fillna(df_ml[col])
+
+    # Dwelling type from property_type
+    if "property_type" in df_ml.columns:
+        df_ml["dwelling_type"] = (
+            df_ml["property_type"]
+            .astype(str)
+            .str.lower()
+            .str.replace(
+                r"^(entire|room in|private room in|private room|shared room in|hotel room in)\s*",
+                "",
+                regex=True
+            )
+            .str.strip()
+        )
+
+    # Distance to city centre
+    from math import radians, cos, sin, asin, sqrt
+
+    DUBLIN_CENTER_LAT = 53.3498
+    DUBLIN_CENTER_LON = -6.2603
+
+    def haversine_km(lat1, lon1, lat2, lon2):
+        R = 6371
+        lat1, lon1, lat2, lon2 = map(radians, [lat1, lon1, lat2, lon2])
+        dlat = lat2 - lat1
+        dlon = lon2 - lon1
+        a = sin(dlat / 2) ** 2 + cos(lat1) * cos(lat2) * sin(dlon / 2) ** 2
+        return R * 2 * asin(sqrt(a))
+
+    if {"latitude", "longitude"}.issubset(df_ml.columns):
+        df_ml["dist_to_center_km"] = df_ml.apply(
+            lambda row: haversine_km(
+                row["latitude"], row["longitude"],
+                DUBLIN_CENTER_LAT, DUBLIN_CENTER_LON
+            ),
+            axis=1
+        )
+
+    # Keep notebook feature logic as closely as possible
+    feature_cols = [
+        "room_type",
+        "dwelling_type",
+        "neighbourhood_cleansed",
+        "accommodates",
+        "bathrooms",
+        "bedrooms",
+        "beds",
+        "minimum_nights",                 # corrected from notebook typo "minimucm_nights"
+        "host_response_rate",
+        "host_acceptance_rate",
+        "review_scores_rating",
+        "review_scores_cleanliness",
+        "review_scores_communication",
+        "review_scores_location",
+        "review_scores_value",
+        "number_of_reviews",              # corrected from notebook typo "number of reviews"
+        "calculated_host_listings_count",
+        "host_age_years",
+        "is_superhost",
+        "host_identity_verified",
+        "amenity_count",
+        "longitude",
+        "latitude",
+    ]
+
+    feature_cols = [col for col in feature_cols if col in df_ml.columns]
+
+    model_df = df_ml[feature_cols + ["price", "log_price"]].copy()
+    model_df = model_df.dropna(subset=["log_price"]).reset_index(drop=True)
+
+    # -------------------------------------------------------------------------
+    # STEP 2 — SPLIT X / y + PREPROCESSING
+    # -------------------------------------------------------------------------
+    X = model_df.drop(columns=["price", "log_price"])
+    y = model_df["log_price"]
+
+    numeric_features = X.select_dtypes(include=["number"]).columns.tolist()
+    categorical_features = X.select_dtypes(include=["object", "category", "bool"]).columns.tolist()
+
+    numeric_transformer = Pipeline(steps=[
+        ("imputer", SimpleImputer(strategy="median"))
+    ])
+
+    numeric_transformer_scaled = Pipeline(steps=[
+        ("imputer", SimpleImputer(strategy="median")),
+        ("scaler", StandardScaler())
+    ])
+
+    categorical_transformer = Pipeline(steps=[
+        ("imputer", SimpleImputer(strategy="most_frequent")),
+        ("onehot", OneHotEncoder(handle_unknown="ignore"))
+    ])
+
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ("num", numeric_transformer, numeric_features),
+            ("cat", categorical_transformer, categorical_features)
+        ],
+        remainder="drop"
+    )
+
+    preprocessor_scaled = ColumnTransformer(
+        transformers=[
+            ("num", numeric_transformer_scaled, numeric_features),
+            ("cat", categorical_transformer, categorical_features)
+        ],
+        remainder="drop"
+    )
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y,
+        test_size=0.20,
+        random_state=42
+    )
+
+    # -------------------------------------------------------------------------
+    # STEP 3 — DEFINE MODELS + PIPELINES
+    # -------------------------------------------------------------------------
+    models = {
+        "Linear Regression": LinearRegression(),
+        "Ridge": Ridge(alpha=1.0),
+        "Lasso": Lasso(alpha=0.001, max_iter=10000),
+        "Decision Tree": DecisionTreeRegressor(random_state=42),
+        "Random Forest": RandomForestRegressor(
+            n_estimators=200,
+            random_state=42,
+            n_jobs=-1
+        ),
+        "Gradient Boosting": GradientBoostingRegressor(random_state=42),
+        "KNN": KNeighborsRegressor(n_neighbors=5),
+    }
+
+    if XGB_AVAILABLE:
+        models["XGBoost"] = XGBRegressor(
+            n_estimators=300,
+            max_depth=6,
+            learning_rate=0.05,
+            subsample=0.8,
+            colsample_bytree=0.8,
+            random_state=42,
+            objective="reg:squarederror",
+            n_jobs=-1
+        )
+
+    if LGBM_AVAILABLE:
+        models["LightGBM"] = LGBMRegressor(
+            n_estimators=300,
+            learning_rate=0.05,
+            max_depth=-1,
+            random_state=42,
+            verbose=-1
+        )
+
+    linear_model_names = {"Linear Regression", "Ridge", "Lasso"}
+
+    pipelines = {}
+    for model_name, model in models.items():
+        prep = preprocessor_scaled if model_name in linear_model_names else preprocessor
+        pipelines[model_name] = Pipeline(steps=[
+            ("preprocessor", prep),
+            ("model", model)
+        ])
+
+    # -------------------------------------------------------------------------
+    # STEP 4 — CROSS-VALIDATION
+    # -------------------------------------------------------------------------
+    cv = KFold(n_splits=5, shuffle=True, random_state=42)
+
+    scoring = {
+        "rmse": "neg_root_mean_squared_error",
+        "mae": "neg_mean_absolute_error",
+        "r2": "r2"
+    }
+
+    cv_results = []
+
+    for model_name, pipeline in pipelines.items():
+        scores = cross_validate(
+            pipeline,
+            X_train,
+            y_train,
+            cv=cv,
+            scoring=scoring,
+            n_jobs=-1,
+            return_train_score=False
+        )
+
+        cv_results.append({
+            "Model": model_name,
+            "CV RMSE Mean": -scores["test_rmse"].mean(),
+            "CV RMSE Std": scores["test_rmse"].std(),
+            "CV MAE Mean": -scores["test_mae"].mean(),
+            "CV MAE Std": scores["test_mae"].std(),
+            "CV R2 Mean": scores["test_r2"].mean(),
+            "CV R2 Std": scores["test_r2"].std(),
+        })
+
+    cv_results_df = pd.DataFrame(cv_results)
+    cv_results_df["CV RMSE Std"] = cv_results_df["CV RMSE Std"].abs()
+    cv_results_df["CV MAE Std"] = cv_results_df["CV MAE Std"].abs()
+    cv_results_df = cv_results_df.sort_values("CV RMSE Mean", ascending=True).reset_index(drop=True)
+
+    top_3_models = cv_results_df["Model"].head(3).tolist()
+
+    # -------------------------------------------------------------------------
+    # STEP 5 — HYPERPARAMETER TUNING FOR TOP 3
+    # -------------------------------------------------------------------------
+    tuning_cv = KFold(n_splits=5, shuffle=True, random_state=42)
+
+    tuning_configs = {
+        "Linear Regression": {
+            "model": LinearRegression(),
+            "params": {}
+        },
+        "Ridge": {
+            "model": Ridge(),
+            "params": {
+                "model__alpha": [0.01, 0.1, 1, 10, 100]
+            }
+        },
+        "Lasso": {
+            "model": Lasso(max_iter=10000, random_state=42),
+            "params": {
+                "model__alpha": [0.0001, 0.001, 0.01, 0.1, 1]
+            }
+        },
+        "Decision Tree": {
+            "model": DecisionTreeRegressor(random_state=42),
+            "params": {
+                "model__max_depth": [3, 5, 8, 12, None],
+                "model__min_samples_split": [2, 5, 10, 20],
+                "model__min_samples_leaf": [1, 2, 5, 10]
+            }
+        },
+        "Random Forest": {
+            "model": RandomForestRegressor(random_state=42, n_jobs=-1),
+            "params": {
+                "model__n_estimators": [200, 400],
+                "model__max_depth": [10, 20, None],
+                "model__min_samples_split": [2, 5, 10],
+                "model__min_samples_leaf": [1, 2, 4]
+            }
+        },
+        "Gradient Boosting": {
+            "model": GradientBoostingRegressor(random_state=42),
+            "params": {
+                "model__n_estimators": [100, 200],
+                "model__learning_rate": [0.03, 0.05, 0.1],
+                "model__max_depth": [2, 3, 4],
+                "model__subsample": [0.8, 1.0]
+            }
+        },
+        "KNN": {
+            "model": KNeighborsRegressor(),
+            "params": {
+                "model__n_neighbors": [3, 5, 7, 11, 15, 21],
+                "model__weights": ["uniform", "distance"],
+                "model__metric": ["euclidean", "manhattan"]
+            }
+        }
+    }
+
+    if XGB_AVAILABLE:
+        tuning_configs["XGBoost"] = {
+            "model": XGBRegressor(
+                objective="reg:squarederror",
+                random_state=42,
+                n_jobs=-1
+            ),
+            "params": {
+                "model__n_estimators": [200, 400],
+                "model__learning_rate": [0.03, 0.05, 0.1],
+                "model__max_depth": [3, 5, 7],
+                "model__subsample": [0.8, 1.0],
+                "model__colsample_bytree": [0.8, 1.0]
+            }
+        }
+
+    if LGBM_AVAILABLE:
+        tuning_configs["LightGBM"] = {
+            "model": LGBMRegressor(
+                random_state=42,
+                verbose=-1
+            ),
+            "params": {
+                "model__n_estimators": [200, 400],
+                "model__learning_rate": [0.03, 0.05, 0.1],
+                "model__max_depth": [-1, 5, 10],
+                "model__num_leaves": [31, 50, 70],
+                "model__subsample": [0.8, 1.0]
+            }
+        }
+
+    selected_tuning_configs = {
+        model_name: tuning_configs[model_name]
+        for model_name in top_3_models
+        if model_name in tuning_configs
+    }
+
+    grid_objects = {}
+    tuning_results = []
+
+    import time
+    for model_name, config in selected_tuning_configs.items():
+        prep = preprocessor_scaled if model_name in linear_model_names else preprocessor
+
+        pipeline = Pipeline(steps=[
+            ("preprocessor", prep),
+            ("model", config["model"])
+        ])
+
+        grid = GridSearchCV(
+            estimator=pipeline,
+            param_grid=config["params"],
+            cv=tuning_cv,
+            scoring="neg_root_mean_squared_error",
+            n_jobs=-1,
+            refit=True,
+            verbose=0
+        )
+
+        start_time = time.time()
+        grid.fit(X_train, y_train)
+        elapsed_time = time.time() - start_time
+
+        grid_objects[model_name] = grid
+
+        tuning_results.append({
+            "Model": model_name,
+            "Best CV RMSE": -grid.best_score_,
+            "Tuning Time (s)": elapsed_time,
+            "Best Parameters": str({
+                k.replace("model__", ""): v for k, v in grid.best_params_.items()
+            })
+        })
+
+    tuning_df = pd.DataFrame(tuning_results).sort_values(
+        by="Best CV RMSE",
+        ascending=True
+    ).reset_index(drop=True)
+
+    if not tuning_df.empty:
+        tuning_df["Rank"] = range(1, len(tuning_df) + 1)
+        tuning_df = tuning_df[["Rank", "Model", "Best CV RMSE", "Tuning Time (s)", "Best Parameters"]]
+
+    # Pre-tune vs post-tune comparison
+    pretune_lookup = cv_results_df.set_index("Model")
+    posttune_lookup = tuning_df.set_index("Model") if not tuning_df.empty else pd.DataFrame()
+
+    comparison_rows = []
+    for model_name in tuning_df["Model"] if not tuning_df.empty else []:
+        if model_name in pretune_lookup.index and model_name in posttune_lookup.index:
+            pre_rmse = pretune_lookup.loc[model_name, "CV RMSE Mean"]
+            post_rmse = posttune_lookup.loc[model_name, "Best CV RMSE"]
+            comparison_rows.append({
+                "Model": model_name,
+                "Pre-tune CV RMSE": pre_rmse,
+                "Post-tune CV RMSE": post_rmse,
+                "Improvement": pre_rmse - post_rmse
+            })
+
+    tuning_comparison_df = pd.DataFrame(comparison_rows).sort_values(
+        "Post-tune CV RMSE", ascending=True
+    ) if comparison_rows else pd.DataFrame()
+
+    # -------------------------------------------------------------------------
+    # STEP 6 — FINAL TEST EVALUATION ON HOLD-OUT SET
+    # -------------------------------------------------------------------------
+    all_results = {}
+
+    for model_name, grid in grid_objects.items():
+        best_pipeline = grid.best_estimator_
+        y_pred_log = best_pipeline.predict(X_test)
+
+        y_true_eur = np.expm1(y_test)
+        y_pred_eur = np.expm1(y_pred_log)
+
+        all_results[model_name] = {
+            "pipeline": best_pipeline,
+            "metrics": {
+                "RMSE (log)": float(np.sqrt(mean_squared_error(y_test, y_pred_log))),
+                "MAE (log)": float(mean_absolute_error(y_test, y_pred_log)),
+                "R² (log)": float(r2_score(y_test, y_pred_log)),
+                "RMSE (€)": float(np.sqrt(mean_squared_error(y_true_eur, y_pred_eur))),
+                "MAE (€)": float(mean_absolute_error(y_true_eur, y_pred_eur)),
+                "R² (€)": float(r2_score(y_true_eur, y_pred_eur)),
+                "MAPE": float(mean_absolute_percentage_error(y_true_eur, y_pred_eur)),
+                "Median AE (€)": float(median_absolute_error(y_true_eur, y_pred_eur)),
+            }
+        }
+
+    comparison_df = pd.DataFrame(
+        {name: res["metrics"] for name, res in all_results.items()}
+    )
+
+    if not tuning_df.empty and "Tuning Time (s)" in tuning_df.columns:
+        cv_times = tuning_df.set_index("Model")["Tuning Time (s)"].to_dict()
+        comparison_df.loc["CV Time (s)"] = {
+            name: cv_times.get(name, np.nan) for name in comparison_df.columns
+        }
+
+    # -------------------------------------------------------------------------
+    # STEP 7 — BEST MODEL PER METRIC
+    # -------------------------------------------------------------------------
+    best_model_summary = []
+
+    for metric in comparison_df.index:
+        metric_values = pd.to_numeric(comparison_df.loc[metric], errors="coerce")
+
+        if metric_values.isna().all():
+            continue
+
+        if metric == "CV Time (s)":
+            best_model = metric_values.idxmin()
+            best_value = metric_values[best_model]
+            display_metric = "Fastest CV"
+        elif metric in ["R² (log)", "R² (€)"]:
+            best_model = metric_values.idxmax()
+            best_value = metric_values[best_model]
+            display_metric = metric
+        else:
+            best_model = metric_values.idxmin()
+            best_value = metric_values[best_model]
+            display_metric = metric
+
+        if display_metric == "Fastest CV":
+            formatted_value = f"{best_value:.2f}s"
+        elif display_metric == "MAPE":
+            formatted_value = f"{best_value:.1%}"
+        elif display_metric in ["R² (log)", "R² (€)"]:
+            formatted_value = f"{best_value:.4f}"
+        else:
+            formatted_value = f"{best_value:.2f}"
+
+        best_model_summary.append({
+            "Metric": display_metric,
+            "Best Model": best_model,
+            "Formatted Value": formatted_value
+        })
+
+    best_model_per_metric_df = pd.DataFrame(best_model_summary)
+
+    # -------------------------------------------------------------------------
+    # STEP 8 — WINNING MODEL + FEATURE IMPORTANCE
+    # -------------------------------------------------------------------------
+    winning_model_name = min(
+        all_results,
+        key=lambda name: all_results[name]["metrics"]["RMSE (€)"]
+    )
+
+    best_pipeline = all_results[winning_model_name]["pipeline"]
+    final_model = best_pipeline.named_steps["model"]
+    feature_names = best_pipeline.named_steps["preprocessor"].get_feature_names_out()
+
+    if hasattr(final_model, "feature_importances_"):
+        importances = final_model.feature_importances_
+    elif hasattr(final_model, "coef_"):
+        importances = np.abs(np.ravel(final_model.coef_))
+    else:
+        raise AttributeError(
+            f"The winning model '{winning_model_name}' does not expose feature importance."
+        )
+
+    importance_df = pd.DataFrame({
+        "Feature": feature_names,
+        "Importance": importances
+    }).sort_values("Importance", ascending=False).reset_index(drop=True)
+
+    importance_df["Feature"] = (
+        importance_df["Feature"]
+        .str.replace("num__", "", regex=False)
+        .str.replace("cat__", "", regex=False)
+    )
+
+    importance_df["Importance Share"] = (
+        importance_df["Importance"] / importance_df["Importance"].sum()
+    )
+
+    top_20_features = importance_df.head(20).copy()
+
+    # -------------------------------------------------------------------------
+    # STEP 9 — DASH-FRIENDLY TABLES
+    # -------------------------------------------------------------------------
+    cv_table_df = cv_results_df.copy()
+    for col in ["CV RMSE Mean", "CV RMSE Std", "CV MAE Mean", "CV MAE Std", "CV R2 Mean", "CV R2 Std"]:
+        if col in cv_table_df.columns:
+            cv_table_df[col] = cv_table_df[col].round(4)
+
+    tuning_table_df = tuning_df.copy()
+    for col in ["Best CV RMSE", "Tuning Time (s)"]:
+        if col in tuning_table_df.columns:
+            tuning_table_df[col] = tuning_table_df[col].round(4)
+
+    test_metrics_table_df = comparison_df.T.reset_index().rename(columns={"index": "Model"})
+    for col in test_metrics_table_df.columns:
+        if col != "Model":
+            test_metrics_table_df[col] = pd.to_numeric(test_metrics_table_df[col], errors="coerce").round(4)
+
+    if not XGB_AVAILABLE or not LGBM_AVAILABLE:
+        missing_libs = []
+        if not XGB_AVAILABLE:
+            missing_libs.append("xgboost")
+        if not LGBM_AVAILABLE:
+            missing_libs.append("lightgbm")
+        ML_WARNING_MESSAGE = (
+            "Machine learning page loaded, but these optional libraries were not available: "
+            + ", ".join(missing_libs)
+            + ". The dashboard skipped those models."
+        )
+
+    ML_ENABLED = True
+
+except Exception as e:
+    ML_ENABLED = False
+    ML_ERROR_MESSAGE = str(e)
 
 # =============================================================================
 # HELPER — figure styling
@@ -660,30 +1270,282 @@ def build_tab2():
     ], fluid=True, className="tab-content")
 
 # =============================================================================
-# TAB 3 — ML PLACEHOLDER
+# TAB 3 — MACHINE LEARNING
 # =============================================================================
+def make_cv_rmse_figure():
+    if cv_results_df.empty:
+        return go.Figure()
+
+    plot_df = cv_results_df.sort_values("CV RMSE Mean", ascending=True).copy()
+    fig = px.bar(
+        plot_df,
+        x="CV RMSE Mean",
+        y="Model",
+        error_x="CV RMSE Std",
+        orientation="h",
+        title="Cross-Validated RMSE by Model",
+        labels={"CV RMSE Mean": "CV RMSE", "Model": "Model"}
+    )
+    fig.update_layout(yaxis=dict(categoryorder="total ascending"))
+    return apply_theme(fig)
+
+def make_cv_r2_figure():
+    if cv_results_df.empty:
+        return go.Figure()
+
+    plot_df = cv_results_df.sort_values("CV R2 Mean", ascending=True).copy()
+    fig = px.bar(
+        plot_df,
+        x="CV R2 Mean",
+        y="Model",
+        error_x="CV R2 Std",
+        orientation="h",
+        title="Cross-Validated R² by Model",
+        labels={"CV R2 Mean": "CV R²", "Model": "Model"}
+    )
+    fig.update_layout(yaxis=dict(categoryorder="total ascending"))
+    return apply_theme(fig)
+
+def make_tuned_rmse_figure():
+    if tuning_df.empty:
+        return go.Figure()
+
+    plot_df = tuning_df.sort_values("Best CV RMSE", ascending=True).copy()
+    fig = px.bar(
+        plot_df,
+        x="Best CV RMSE",
+        y="Model",
+        orientation="h",
+        title="Best Tuned CV RMSE by Model",
+        labels={"Best CV RMSE": "Best CV RMSE", "Model": "Model"}
+    )
+    fig.update_layout(yaxis=dict(categoryorder="total ascending"))
+    return apply_theme(fig)
+
+def make_pre_post_tuning_figure():
+    if tuning_comparison_df.empty:
+        return go.Figure()
+
+    plot_df = tuning_comparison_df.sort_values("Post-tune CV RMSE", ascending=True).copy()
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=plot_df["Model"],
+        y=plot_df["Pre-tune CV RMSE"],
+        name="Pre-tune CV RMSE"
+    ))
+    fig.add_trace(go.Bar(
+        x=plot_df["Model"],
+        y=plot_df["Post-tune CV RMSE"],
+        name="Post-tune CV RMSE"
+    ))
+    fig.update_layout(
+        barmode="group",
+        title="Pre-tune vs Post-tune CV RMSE",
+        xaxis_title="Model",
+        yaxis_title="CV RMSE"
+    )
+    return apply_theme(fig)
+
+def make_tuning_improvement_figure():
+    if tuning_comparison_df.empty:
+        return go.Figure()
+
+    plot_df = tuning_comparison_df.sort_values("Improvement", ascending=False).copy()
+    fig = px.bar(
+        plot_df,
+        x="Improvement",
+        y="Model",
+        orientation="h",
+        title="RMSE Improvement from Hyperparameter Tuning",
+        labels={"Improvement": "Improvement (Pre - Post)", "Model": "Model"}
+    )
+    fig.add_vline(x=0, line_dash="dash")
+    fig.update_layout(yaxis=dict(categoryorder="total ascending"))
+    return apply_theme(fig)
+
+def make_feature_importance_figure():
+    if top_20_features.empty:
+        return go.Figure()
+
+    plot_df = top_20_features.copy().sort_values("Importance", ascending=True)
+    fig = px.bar(
+        plot_df,
+        x="Importance",
+        y="Feature",
+        orientation="h",
+        title="Top 20 Feature Importances",
+        labels={"Importance": "Importance", "Feature": "Feature"}
+    )
+    fig.update_layout(height=650)
+    return apply_theme(fig)
+
+def make_test_metric_figure(metric):
+    if comparison_df.empty or metric not in comparison_df.index:
+        return go.Figure()
+
+    metric_values = pd.to_numeric(comparison_df.loc[metric], errors="coerce").reset_index()
+    metric_values.columns = ["Model", "Value"]
+
+    ascending = metric not in ["R² (log)", "R² (€)"]
+    metric_values = metric_values.sort_values("Value", ascending=ascending)
+
+    fig = px.bar(
+        metric_values,
+        x="Value",
+        y="Model",
+        orientation="h",
+        title=f"Hold-out Test Comparison: {metric}",
+        labels={"Value": metric, "Model": "Model"}
+    )
+    fig.update_layout(yaxis=dict(categoryorder="total ascending"))
+    return apply_theme(fig)
+
 def build_tab3():
+    if not ML_ENABLED:
+        return dbc.Container([
+            section_header("Machine Learning Modelling", "ML page could not be loaded"),
+            dbc.Alert(
+                f"Machine learning section failed to build. Error: {ML_ERROR_MESSAGE}",
+                color="danger",
+                className="mb-4"
+            ),
+            dbc.Card(
+                dbc.CardBody([
+                    html.H5("Why this happened"),
+                    html.P(
+                        "Most commonly this is caused by missing ML packages "
+                        "(for example xgboost / lightgbm) or a preprocessing issue."
+                    )
+                ]),
+                className="story-card"
+            )
+        ], fluid=True, className="tab-content")
+
+    winner_metrics = all_results[winning_model_name]["metrics"]
+
     return dbc.Container([
-        section_header("Machine Learning Modelling", "Placeholder retained for future deployment"),
-        dbc.Alert(
-            "This section is temporarily disabled to keep the dashboard deploy-safe. "
-            "You can add the trained model and cached outputs later.",
-            color="warning",
-            className="mb-4"
+        section_header(
+            "Machine Learning Modelling",
+            "Model benchmarking, hyperparameter tuning, hold-out evaluation, and feature importance"
         ),
-        dbc.Card(
-            dbc.CardBody([
-                html.H5("What will go here?"),
-                html.Ul([
-                    html.Li("Model comparison table"),
-                    html.Li("Cross-validation metrics"),
-                    html.Li("Hyperparameter tuning results"),
-                    html.Li("Feature importance chart"),
-                    html.Li("Price prediction demo")
-                ])
-            ]),
-            className="story-card"
-        )
+
+        dbc.Alert(ML_WARNING_MESSAGE, color="warning", className="mb-4") if ML_WARNING_MESSAGE else html.Div(),
+
+        dbc.Row([
+            dbc.Col(
+                dbc.Card(
+                    dbc.CardBody([
+                        html.H5("Winning Model"),
+                        html.H3(f"{winning_model_name}", style={"color": AIRBNB_RED}),
+                        html.Hr(),
+                        html.P(f"Test RMSE (€): {winner_metrics['RMSE (€)']:.2f}"),
+                        html.P(f"Test MAE (€): {winner_metrics['MAE (€)']:.2f}"),
+                        html.P(f"Test R² (€): {winner_metrics['R² (€)']:.4f}")
+                    ]),
+                    className="story-card"
+                ),
+                md=4
+            ),
+            dbc.Col(
+                dbc.Card(
+                    dbc.CardBody([
+                        html.H5("Pipeline Overview"),
+                        html.Ul([
+                            html.Li("Target variable: log_price"),
+                            html.Li("Numeric preprocessing: median imputation"),
+                            html.Li("Categorical preprocessing: most-frequent imputation + one-hot encoding"),
+                            html.Li("Linear models additionally use StandardScaler"),
+                            html.Li("Candidate models benchmarked with 5-fold cross-validation"),
+                            html.Li("Top 3 models tuned with GridSearchCV"),
+                            html.Li("Final winner selected by lowest hold-out RMSE in euro space")
+                        ])
+                    ]),
+                    className="story-card"
+                ),
+                md=8
+            ),
+        ], className="mb-4"),
+
+        dbc.Row([
+            dbc.Col(dcc.Graph(figure=make_cv_rmse_figure()), md=6),
+            dbc.Col(dcc.Graph(figure=make_cv_r2_figure()), md=6),
+        ], className="mb-4"),
+
+        dbc.Row([
+            dbc.Col([
+                section_header("Cross-validation Results Table"),
+                dash_table.DataTable(
+                    data=cv_table_df.to_dict("records"),
+                    columns=[{"name": c, "id": c} for c in cv_table_df.columns],
+                    page_size=10,
+                    sort_action="native",
+                    style_table={"overflowX": "auto"},
+                    style_header={"backgroundColor": AIRBNB_RED, "color": "white", "fontWeight": "bold"},
+                    style_cell={"fontFamily": "DM Sans, sans-serif", "padding": "8px"},
+                    style_data_conditional=[{"if": {"row_index": "odd"}, "backgroundColor": "#fafafa"}],
+                )
+            ], md=12)
+        ], className="mb-4"),
+
+        dbc.Row([
+            dbc.Col(dcc.Graph(figure=make_tuned_rmse_figure()), md=6),
+            dbc.Col(dcc.Graph(figure=make_tuning_improvement_figure()), md=6),
+        ], className="mb-4"),
+
+        dbc.Row([
+            dbc.Col(dcc.Graph(figure=make_pre_post_tuning_figure()), md=12),
+        ], className="mb-4"),
+
+        dbc.Row([
+            dbc.Col([
+                section_header("Hyperparameter Tuning Summary"),
+                dash_table.DataTable(
+                    data=tuning_table_df.to_dict("records"),
+                    columns=[{"name": c, "id": c} for c in tuning_table_df.columns],
+                    page_size=10,
+                    sort_action="native",
+                    style_table={"overflowX": "auto"},
+                    style_header={"backgroundColor": AIRBNB_RED, "color": "white", "fontWeight": "bold"},
+                    style_cell={"fontFamily": "DM Sans, sans-serif", "padding": "8px"},
+                    style_data_conditional=[{"if": {"row_index": "odd"}, "backgroundColor": "#fafafa"}],
+                )
+            ], md=12)
+        ], className="mb-4"),
+
+        dbc.Row([
+            dbc.Col([
+                section_header("Hold-out Test Performance"),
+                html.Label("Select metric:"),
+                dcc.Dropdown(
+                    id="ml-metric-dropdown",
+                    options=[
+                        {"label": m, "value": m}
+                        for m in comparison_df.index
+                        if m != "CV Time (s)"
+                    ],
+                    value="RMSE (€)" if "RMSE (€)" in comparison_df.index else comparison_df.index[0],
+                    clearable=False,
+                ),
+                dcc.Graph(id="ml-metric-chart")
+            ], md=7),
+
+            dbc.Col([
+                section_header("Best Model by Metric"),
+                dash_table.DataTable(
+                    data=best_model_per_metric_df.to_dict("records"),
+                    columns=[{"name": c, "id": c} for c in best_model_per_metric_df.columns],
+                    page_size=10,
+                    style_table={"overflowX": "auto"},
+                    style_header={"backgroundColor": AIRBNB_RED, "color": "white", "fontWeight": "bold"},
+                    style_cell={"fontFamily": "DM Sans, sans-serif", "padding": "8px"},
+                    style_data_conditional=[{"if": {"row_index": "odd"}, "backgroundColor": "#fafafa"}],
+                )
+            ], md=5),
+        ], className="mb-4"),
+
+        dbc.Row([
+            dbc.Col(dcc.Graph(figure=make_feature_importance_figure()), md=12),
+        ]),
     ], fluid=True, className="tab-content")
 
 # =============================================================================
@@ -1076,7 +1938,12 @@ def update_portfolio(cap):
         title=f"Listings per Host (cap={cap})",
         labels={"calculated_host_listings_count": "Listings per Host"}
     ))
-
+    
+@app.callback(Output("ml-metric-chart", "figure"), Input("ml-metric-dropdown", "value"))
+def update_ml_metric_chart(selected_metric):
+    if not ML_ENABLED:
+        return go.Figure()
+    return make_test_metric_figure(selected_metric)
 @app.callback(
     Output("exp-kpis", "children"),
     Output("exp-price-hist", "figure"),
@@ -1089,6 +1956,7 @@ def update_portfolio(cap):
     Input("exp-acc", "value"),
     Input("exp-superhost", "value"),
 )
+
 def update_explorer(nbhds, room_types_sel, price_range, acc_range, superhost_val):
     sub = df.copy()
 
