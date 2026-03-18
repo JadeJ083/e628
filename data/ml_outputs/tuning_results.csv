@@ -1,0 +1,4 @@
+Rank,Model,Best CV RMSE,Best Parameters
+1,XGBoost,0.3317570561851481,"{'model__colsample_bytree': 0.8, 'model__learning_rate': 0.05, 'model__max_depth': 7, 'model__n_estimators': 400, 'model__subsample': 0.8}"
+2,LightGBM,0.33416797994558467,"{'model__learning_rate': 0.03, 'model__max_depth': -1, 'model__n_estimators': 400, 'model__num_leaves': 50, 'model__subsample': 0.8}"
+3,Gradient Boosting,0.33743700517869923,"{'model__learning_rate': 0.1, 'model__max_depth': 4, 'model__n_estimators': 200, 'model__subsample': 0.8}"

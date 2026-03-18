@@ -1,0 +1,2 @@
+winning_model_name,rmse_eur,mae_eur,r2_eur
+XGBoost,85.91448468868141,46.05602666231302,0.6135606453003708

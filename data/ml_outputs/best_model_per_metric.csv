@@ -1,0 +1,9 @@
+Metric,Best Model,Formatted Value
+RMSE (log),XGBoost,0.32
+MAE (log),XGBoost,0.23
+R² (log),XGBoost,0.7536
+RMSE (€),XGBoost,85.91
+MAE (€),XGBoost,46.06
+R² (€),XGBoost,0.6136
+MAPE,XGBoost,24.2%
+Median AE (€),XGBoost,22.83

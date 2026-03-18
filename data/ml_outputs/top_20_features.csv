@@ -1,0 +1,21 @@
+Feature,Importance,Importance Share
+room_type_Entire home/apt,0.15429288,0.15429288
+bedrooms,0.11992142,0.11992142
+accommodates,0.10626066,0.10626066
+room_type_Private room,0.09164491,0.09164491
+room_type_Shared room,0.08816824,0.08816824
+dwelling_type_hotel,0.044527333,0.044527333
+dwelling_type_hostel,0.04321373,0.04321373
+room_type_Hotel room,0.037073676,0.037073676
+dwelling_type_serviced apartment,0.02079352,0.02079352
+dwelling_type_chalet,0.017954038,0.017954038
+neighbourhood_cleansed_Dublin City,0.01490734,0.01490734
+dwelling_type_camper/rv,0.014043072,0.014043072
+dwelling_type_boutique hotel,0.012158345,0.012158345
+dwelling_type_bed and breakfast,0.012094598,0.012094598
+calculated_host_listings_count,0.011454647,0.011454647
+latitude,0.010106597,0.010106597
+longitude,0.009944103,0.009944103
+dwelling_type_guest suite,0.009802253,0.009802253
+dwelling_type_farm stay,0.009748351,0.009748351
+dwelling_type_aparthotel,0.009011535,0.009011535
