@@ -413,16 +413,6 @@ def build_tab1():
         ], className="mb-4"),
 
         dbc.Row([
-            dbc.Col([
-                section_header("Missing-Value Audit"),
-                html.Label("Show top N columns:"),
-                dcc.Slider(5, 25, 5, value=15, id="missing-n-slider",
-                           marks={i: str(i) for i in range(5, 26, 5)}),
-                dcc.Graph(id="missing-bar"),
-            ])
-        ], className="mb-4"),
-
-        dbc.Row([
             dbc.Col([section_header("Price Distribution"), dcc.Graph(figure=fig_price)])
         ], className="mb-4"),
 
@@ -820,6 +810,21 @@ def build_tab3():
         dbc.Row([
             dbc.Col([
                 dbc.Card(dbc.CardBody([
+                    html.H5("📌 Executive Summary", className="story-h"),
+                    dcc.Markdown("""
+In conclusion, Dublin's Airbnb market centres on a **median price of €136 per night** across 5,196 clean listings, with Dublin City commanding the highest prices (median €150) and South Dublin the lowest (€91.50). The market is split between entire homes (56%) averaging €243/night and private rooms (43%) at €104/night.
+
+**Property size is the dominant price driver**. Accommodates, bedrooms, and beds show the strongest correlations with price (0.71, 0.63, and 0.50 respectively), with each additional guest adding roughly €40–50 per night. Review scores, minimum nights, and review volume have minimal linear effect on pricing.
+
+**Superhosts charge slightly less than non-Superhosts** (median €123 vs €134) despite earning higher ratings (4.9 vs 4.8) and far more reviews. This suggests the badge reflects service quality and booking volume rather than a pricing premium.
+
+Over half (54%) of listings are managed by multi-property hosts, indicating significant commercial operator presence. However, single-listing hosts actually charge more on average (€195 vs €155 for 2–5 listing hosts), possibly prioritising per-night revenue over occupancy.
+
+XGBoost was the best-performing model with a cross-validated RMSE of 0.354 and R² of 0.70, followed by LightGBM and Random Forest. All tree-based ensembles substantially outperformed linear models (R² 0.59), confirming that Dublin's price relationships are non-linear.
+                    """, className="story-body"),
+                ]), className="story-card mb-3"),
+                
+                dbc.Card(dbc.CardBody([
                     html.H5("🏡 What Makes a Dublin Airbnb Expensive?", className="story-h"),
                     dcc.Markdown("""
 Dublin Airbnb prices are driven primarily by **listing size and room type**. Entire-home listings
@@ -958,20 +963,6 @@ def render_tab(tab):
     if tab == "tab3":
         return build_tab3()
     return build_tab1()
-
-@app.callback(Output("missing-bar", "figure"), Input("missing-n-slider", "value"))
-def update_missing_bar(n):
-    data = missing_report.head(n)
-    if data.empty:
-        return go.Figure()
-    fig = px.bar(
-        data, x="pct", y="column", orientation="h",
-        color="pct",
-        color_continuous_scale=[[0, "#FFB400"], [1, AIRBNB_RED]],
-        title=f"Top {n} Columns by % Missing",
-        labels={"pct": "% Missing", "column": ""}
-    )
-    return apply_theme(fig)
 
 @app.callback(Output("q2-chart", "figure"), Input("q2-nbhd-dropdown", "value"))
 def update_q2(selected):
