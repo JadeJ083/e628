@@ -99,19 +99,6 @@ df = (
 )
 print(f"Clean dataset: {len(df):,} listings")
 
-# Missing-value report
-missing_report = (
-    df.isnull().sum()
-    .pipe(lambda s: s[s > 0])
-    .sort_values(ascending=False)
-    .rename("n_missing")
-    .to_frame()
-    .assign(pct=lambda x: (x["n_missing"] / len(df) * 100).round(1))
-    .head(25)
-    .reset_index()
-    .rename(columns={"index": "column"})
-)
-
 # Neighbourhood summary
 if "neighbourhood_cleansed" in df.columns:
     nbhd_summary = (
@@ -324,7 +311,7 @@ def map_card(title, html_content, fallback_text):
     )
 
 # =============================================================================
-# TAB 1 — DATA WRANGLING + EDA + MAPS
+# TAB 1 — DATA WRANGLING + EDA
 # =============================================================================
 def build_tab1():
     fig_price = make_subplots(
@@ -401,7 +388,7 @@ def build_tab1():
     neighbourhoods = sorted(df["neighbourhood_cleansed"].dropna().unique()) if "neighbourhood_cleansed" in df.columns else []
 
     return dbc.Container([
-        section_header("Data Wrangling & EDA", "Data acquisition, cleaning, SQL summaries, visual exploration, and spatial analysis"),
+        section_header("Data Wrangling & EDA", "Data acquisition, cleaning, SQL summaries, and visual exploration"),
 
         dbc.Row([
             dbc.Col(kpi_card("Total Listings", f"{len(df):,}"), md=2),
@@ -665,29 +652,6 @@ def build_tab1():
                     ), md=6),
                 ]),
             ])
-        ], className="mb-4"),
-
-        html.Hr(),
-        html.H5("Spatial Analysis", className="sub-heading"),
-
-        dbc.Row([
-            dbc.Col([
-                map_card(
-                    "Neighbourhood Price Choropleth",
-                    choropleth_map_html,
-                    "Could not load dublin_choropleth_price.html from /data."
-                )
-            ], md=12)
-        ], className="mb-4"),
-
-        dbc.Row([
-            dbc.Col([
-                map_card(
-                    "Clickable Listings Map",
-                    clickable_map_html,
-                    "Could not load dublin_listings_clickable.html from /data."
-                )
-            ], md=12)
         ]),
     ], fluid=True, className="tab-content")
 
@@ -796,9 +760,37 @@ def build_tab2():
     ], fluid=True, className="tab-content")
 
 # =============================================================================
-# TAB 3 — STORYTELLING + REFLECTION
+# TAB 3 — MAPS
 # =============================================================================
 def build_tab3():
+    return dbc.Container([
+        section_header("Spatial Analysis", "Interactive geographic views of pricing and listings"),
+
+        dbc.Row([
+            dbc.Col([
+                map_card(
+                    "Neighbourhood Price Choropleth",
+                    choropleth_map_html,
+                    "Could not load dublin_choropleth_price.html from /data."
+                )
+            ], md=12)
+        ], className="mb-4"),
+
+        dbc.Row([
+            dbc.Col([
+                map_card(
+                    "Clickable Listings Map",
+                    clickable_map_html,
+                    "Could not load dublin_listings_clickable.html from /data."
+                )
+            ], md=12)
+        ]),
+    ], fluid=True, className="tab-content")
+
+# =============================================================================
+# TAB 4 — STORYTELLING + REFLECTION
+# =============================================================================
+def build_tab4():
     sh_med = (
         superhost_comp.groupby("superhost_label")["price"].median()
         if not superhost_comp.empty else pd.Series(dtype=float)
@@ -823,7 +815,7 @@ Over half (54%) of listings are managed by multi-property hosts, indicating sign
 XGBoost was the best-performing model with a cross-validated RMSE of 0.354 and R² of 0.70, followed by LightGBM and Random Forest. All tree-based ensembles substantially outperformed linear models (R² 0.59), confirming that Dublin's price relationships are non-linear.
                     """, className="story-body"),
                 ]), className="story-card mb-3"),
-                
+
                 dbc.Card(dbc.CardBody([
                     html.H5("🏡 What Makes a Dublin Airbnb Expensive?", className="story-h"),
                     dcc.Markdown("""
@@ -946,7 +938,8 @@ app.layout = html.Div([
     dcc.Tabs(id="main-tabs", value="tab1", className="main-tabs", children=[
         dcc.Tab(label="① Data & EDA", value="tab1", className="tab", selected_className="tab--selected"),
         dcc.Tab(label="② Price Explorer", value="tab2", className="tab", selected_className="tab--selected"),
-        dcc.Tab(label="③ Storytelling & Reflection", value="tab3", className="tab", selected_className="tab--selected"),
+        dcc.Tab(label="③ Maps", value="tab3", className="tab", selected_className="tab--selected"),
+        dcc.Tab(label="④ Storytelling & Reflection", value="tab4", className="tab", selected_className="tab--selected"),
     ]),
     html.Div(id="tab-content"),
 ], className="app-shell")
@@ -962,6 +955,8 @@ def render_tab(tab):
         return build_tab2()
     if tab == "tab3":
         return build_tab3()
+    if tab == "tab4":
+        return build_tab4()
     return build_tab1()
 
 @app.callback(Output("q2-chart", "figure"), Input("q2-nbhd-dropdown", "value"))
